@@ -13,7 +13,7 @@ async function saveToDrive(filename, data) {
     const credentials = typeof keyJson === "string" ? JSON.parse(keyJson) : keyJson;
     const auth = new google.auth.GoogleAuth({
       credentials,
-      scopes: ["https://www.googleapis.com/auth/drive.file"],
+     scopes: ["https://www.googleapis.com/auth/drive"]
     });
     const drive   = google.drive({ version: "v3", auth });
     const content = JSON.stringify(data, null, 2);
