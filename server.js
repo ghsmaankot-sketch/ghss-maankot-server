@@ -11,6 +11,7 @@ const fetch      = require("node-fetch");
 const cron       = require("node-cron");
 const jwt        = require('jsonwebtoken');
 const bcrypt     = require('bcryptjs');
+const { ObjectId } = require('mongodb');
 
 const app        = express();
 const PORT       = process.env.PORT || 3000;
@@ -31,7 +32,7 @@ mongoose
   .connect(process.env.MONGODB_URI)
   .then(async () => {
     console.log("✅  MongoDB connected — ghss_maankot");
-    // Pehli baar admin user banana (ek baar chalta hai)
+    // Pehli baar superadmin user banana (ek baar chalta hai)
     const db = mongoose.connection.db;
     const exists = await db.collection('users').findOne({ username: 'admin' });
     if (!exists) {
@@ -39,10 +40,20 @@ mongoose
       await db.collection('users').insertOne({
         username: 'admin',
         password: hash,
-        name: 'Administrator',
+        name: 'Super Administrator',
+        role: 'superadmin',          // <-- SuperAdmin role
         createdAt: new Date()
       });
-      console.log('✅  Admin user bana diya — username: admin | password: admin123');
+      console.log('✅  SuperAdmin user bana diya — username: admin | password: admin123');
+    } else {
+      // Purana admin ko superadmin role do agar nahi hai
+      if (!exists.role) {
+        await db.collection('users').updateOne(
+          { username: 'admin' },
+          { $set: { role: 'superadmin' } }
+        );
+        console.log('✅  Existing admin ko superadmin role de diya');
+      }
     }
   })
   .catch((err) => { console.error("❌  MongoDB error:", err.message); process.exit(1); });
@@ -52,6 +63,21 @@ function requireAuth(req, res, next) {
   const token = (req.headers.authorization || '').split(' ')[1];
   try {
     req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: 'Session expire ho gaya, dobara login karein' });
+  }
+}
+
+// ── SuperAdmin Only Middleware ───────────────────────────────
+function requireSuperAdmin(req, res, next) {
+  const token = (req.headers.authorization || '').split(' ')[1];
+  try {
+    const user = jwt.verify(token, JWT_SECRET);
+    if (user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Sirf SuperAdmin yeh kaam kar sakta hai' });
+    }
+    req.user = user;
     next();
   } catch {
     res.status(401).json({ error: 'Session expire ho gaya, dobara login karein' });
@@ -149,12 +175,14 @@ app.post('/api/login', async (req, res) => {
     if (!user || !await bcrypt.compare(password, user.password))
       return res.status(401).json({ error: 'Username ya password galat hai' });
 
+    const role = user.role || 'staff';
+
     const token = jwt.sign(
-      { id: user._id.toString(), username: user.username },
+      { id: user._id.toString(), username: user.username, role },
       JWT_SECRET,
       { expiresIn: '8h' }
     );
-    res.json({ token, name: user.name });
+    res.json({ token, name: user.name, role });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -171,6 +199,89 @@ app.post("/refresh-cache", (req, res) => {
   cacheExpiry = 0;
   console.log("🔄  HTML cache cleared");
   res.json({ success: true, message: "Cache clear ho gaya" });
+});
+
+// ── USER MANAGEMENT (SuperAdmin only) ───────────────────────
+
+// GET all users (without passwords)
+app.get('/api/users', requireSuperAdmin, async (req, res) => {
+  try {
+    const db = mongoose.connection.db;
+    const users = await db.collection('users')
+      .find({}, { projection: { password: 0 } })
+      .toArray();
+    res.json({ success: true, data: users });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// POST new staff user
+app.post('/api/users', requireSuperAdmin, async (req, res) => {
+  try {
+    const { username, password, name } = req.body;
+    if (!username || !password || !name)
+      return res.status(400).json({ error: 'Sab fields zaroor hain' });
+
+    const db = mongoose.connection.db;
+    const exists = await db.collection('users').findOne({ username });
+    if (exists)
+      return res.status(400).json({ error: 'Yeh username pehle se maujood hai' });
+
+    const hash = await bcrypt.hash(password, 10);
+    await db.collection('users').insertOne({
+      username,
+      password: hash,
+      name,
+      role: 'staff',       // Staff role hamesha
+      createdAt: new Date()
+    });
+    res.json({ success: true, message: 'Staff user ban gaya' });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// PUT update user (name or password)
+app.put('/api/users/:id', requireSuperAdmin, async (req, res) => {
+  try {
+    const { name, password } = req.body;
+    const db = mongoose.connection.db;
+
+    const update = {};
+    if (name) update.name = name;
+    if (password && password.trim()) {
+      update.password = await bcrypt.hash(password, 10);
+    }
+
+    if (!Object.keys(update).length)
+      return res.status(400).json({ error: 'Kuch update karne ke liye nahi hai' });
+
+    await db.collection('users').updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: update }
+    );
+    res.json({ success: true, message: 'User update ho gaya' });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// DELETE user (superadmin ko delete nahi kar saktey)
+app.delete('/api/users/:id', requireSuperAdmin, async (req, res) => {
+  try {
+    const db = mongoose.connection.db;
+    const user = await db.collection('users').findOne({ _id: new ObjectId(req.params.id) });
+    if (!user)
+      return res.status(404).json({ error: 'User nahi mila' });
+    if (user.role === 'superadmin')
+      return res.status(400).json({ error: 'SuperAdmin ko delete nahi kar saktey' });
+
+    await db.collection('users').deleteOne({ _id: new ObjectId(req.params.id) });
+    res.json({ success: true, message: 'User delete ho gaya' });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
 });
 
 // PROTECTED — API Routes
