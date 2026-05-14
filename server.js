@@ -4,18 +4,21 @@
 // ============================================================
 require("dotenv").config();
 
-const express  = require("express");
-const mongoose = require("mongoose");
-const cors     = require("cors");
-const fetch    = require("node-fetch");
-const cron     = require("node-cron");
+const express    = require("express");
+const mongoose   = require("mongoose");
+const cors       = require("cors");
+const fetch      = require("node-fetch");
+const cron       = require("node-cron");
+const jwt        = require('jsonwebtoken');
+const bcrypt     = require('bcryptjs');
 
-const app  = express();
-const PORT = process.env.PORT || 3000;
+const app        = express();
+const PORT       = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'change_this';
 
 // ── Middleware ───────────────────────────────────────────────
 app.use(cors());
-app.use(express.json({ limit: "15mb" }));   // base64 images ke liye bada limit
+app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 
 // ── MongoDB Connect ──────────────────────────────────────────
@@ -26,34 +29,48 @@ if (!process.env.MONGODB_URI) {
 
 mongoose
   .connect(process.env.MONGODB_URI)
-  .then(() => console.log("✅  MongoDB connected — ghss_maankot"))
+  .then(async () => {
+    console.log("✅  MongoDB connected — ghss_maankot");
+    // Pehli baar admin user banana (ek baar chalta hai)
+    const db = mongoose.connection.db;
+    const exists = await db.collection('users').findOne({ username: 'admin' });
+    if (!exists) {
+      const hash = await bcrypt.hash('admin123', 10);
+      await db.collection('users').insertOne({
+        username: 'admin',
+        password: hash,
+        name: 'Administrator',
+        createdAt: new Date()
+      });
+      console.log('✅  Admin user bana diya — username: admin | password: admin123');
+    }
+  })
   .catch((err) => { console.error("❌  MongoDB error:", err.message); process.exit(1); });
 
-// ── Google Drive HTML Fetcher (with short cache) ─────────────
-//
-//  Logic:
-//  - Aap Drive mein index.html change karo
-//  - Node.js har request pr check karta hai k cache expire hua ya nahi
-//  - Cache expire hua → Drive se fresh file uthata hai → serve karta hai
-//  - HTML_CACHE_SECONDS = 0 → har baar fresh (thoda slow)
-//  - HTML_CACHE_SECONDS = 30 → 30 second mein ek baar Drive se fetch
-// ──────────────────────────────────────────────────────────────
-const CACHE_SECS  = parseInt(process.env.HTML_CACHE_SECONDS || "30", 10);
-const FILE_ID     = process.env.GDRIVE_HTML_FILE_ID;
+// ── Auth Middleware ──────────────────────────────────────────
+function requireAuth(req, res, next) {
+  const token = (req.headers.authorization || '').split(' ')[1];
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: 'Session expire ho gaya, dobara login karein' });
+  }
+}
 
-// Drive public export URL
+// ── Google Drive HTML Fetcher ────────────────────────────────
+const CACHE_SECS = parseInt(process.env.HTML_CACHE_SECONDS || "30", 10);
+const FILE_ID    = process.env.GDRIVE_HTML_FILE_ID;
+
 function getDriveUrl(fileId) {
   return `https://drive.google.com/uc?export=download&id=${fileId}`;
 }
 
-let htmlCache    = null;
-let cacheExpiry  = 0;
+let htmlCache   = null;
+let cacheExpiry = 0;
 
 async function getHtmlFromDrive() {
-  // Agar cache valid hai to wohi do
-  if (htmlCache && Date.now() < cacheExpiry) {
-    return htmlCache;
-  }
+  if (htmlCache && Date.now() < cacheExpiry) return htmlCache;
 
   if (!FILE_ID || FILE_ID === "YOUR_INDEX_HTML_FILE_ID_HERE") {
     return fallbackHtml();
@@ -69,9 +86,7 @@ async function getHtmlFromDrive() {
 
     if (!response.ok) throw new Error(`Drive HTTP ${response.status}`);
 
-    const html = await response.text();
-
-    // Cache update karo
+    const html  = await response.text();
     htmlCache   = html;
     cacheExpiry = Date.now() + CACHE_SECS * 1000;
 
@@ -79,13 +94,11 @@ async function getHtmlFromDrive() {
     return html;
   } catch (err) {
     console.error("❌  Drive fetch error:", err.message);
-    // Agar cache mein kuch tha to wohi do (stale but better than nothing)
     if (htmlCache) return htmlCache;
     return fallbackHtml(err.message);
   }
 }
 
-// ── Fallback HTML (jab Drive ID set nahi ya error ho) ────────
 function fallbackHtml(errMsg = "") {
   return `<!DOCTYPE html><html><head>
 <meta charset="UTF-8"/>
@@ -113,30 +126,61 @@ function fallbackHtml(errMsg = "") {
 </div></body></html>`;
 }
 
-// ── MAIN ROUTE — Drive se HTML serve karo ────────────────────
+// ── ROUTES ───────────────────────────────────────────────────
+
+// PUBLIC — Main HTML page
 app.get("/", async (req, res) => {
   const html = await getHtmlFromDrive();
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.setHeader("Cache-Control", "no-store");  // browser cache nahi kare
+  res.setHeader("Cache-Control", "no-store");
   res.send(html);
 });
 
-// Cache force refresh endpoint (agar foran Drive change dekhna ho)
+// PUBLIC — Login
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password)
+      return res.status(400).json({ error: 'Username aur password daalen' });
+
+    const db   = mongoose.connection.db;
+    const user = await db.collection('users').findOne({ username });
+
+    if (!user || !await bcrypt.compare(password, user.password))
+      return res.status(401).json({ error: 'Username ya password galat hai' });
+
+    const token = jwt.sign(
+      { id: user._id.toString(), username: user.username },
+      JWT_SECRET,
+      { expiresIn: '8h' }
+    );
+    res.json({ token, name: user.name });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PUBLIC — Health check
+app.get("/health", (req, res) =>
+  res.json({ status: "ok", server: "GHSS Maankot", time: new Date().toISOString() })
+);
+
+// PUBLIC — Cache refresh
 app.post("/refresh-cache", (req, res) => {
   htmlCache   = null;
   cacheExpiry = 0;
   console.log("🔄  HTML cache cleared");
-  res.json({ success: true, message: "Cache clear ho gaya, agli request mein Drive se fresh HTML milegi" });
+  res.json({ success: true, message: "Cache clear ho gaya" });
 });
 
-// ── API ROUTES ────────────────────────────────────────────────
-app.use("/api/teachers", require("./routes/teachers"));
-app.use("/api/students", require("./routes/students"));
-app.use("/api/diary",    require("./routes/diary"));
-app.use("/api/backup",   require("./routes/backup"));
+// PROTECTED — API Routes
+app.use("/api/teachers", requireAuth, require("./routes/teachers"));
+app.use("/api/students", requireAuth, require("./routes/students"));
+app.use("/api/diary",    requireAuth, require("./routes/diary"));
+app.use("/api/backup",   requireAuth, require("./routes/backup"));
 
-// Dashboard stats
-app.get("/api/stats", async (req, res) => {
+// PROTECTED — Dashboard Stats
+app.get("/api/stats", requireAuth, async (req, res) => {
   try {
     const Teacher = require("./models/Teacher");
     const Student = require("./models/Student");
@@ -152,12 +196,7 @@ app.get("/api/stats", async (req, res) => {
   }
 });
 
-// Health check (Render/Railway ke liye)
-app.get("/health", (req, res) =>
-  res.json({ status: "ok", server: "GHSS Maankot", time: new Date().toISOString() })
-);
-
-// ── AUTO DAILY BACKUP — raat 11 baje (Pakistan time) ─────────
+// ── AUTO DAILY BACKUP ────────────────────────────────────────
 cron.schedule("0 23 * * *", async () => {
   try {
     console.log("🔄  Auto daily backup shuru...");
@@ -169,11 +208,11 @@ cron.schedule("0 23 * * *", async () => {
   }
 }, { timezone: "Asia/Karachi" });
 
-// ── START ─────────────────────────────────────────────────────
+// ── START ────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`\n🚀  GHSS Maankot Server chal raha hai`);
   console.log(`📡  URL: http://localhost:${PORT}`);
   console.log(`🗄️   API: http://localhost:${PORT}/api`);
-  console.log(`📄  HTML Drive ID: ${FILE_ID || "NOT SET (set GDRIVE_HTML_FILE_ID in .env)"}`);
+  console.log(`📄  HTML Drive ID: ${FILE_ID || "NOT SET"}`);
   console.log(`⏱️   Cache: ${CACHE_SECS}s\n`);
 });
