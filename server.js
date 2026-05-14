@@ -33,24 +33,16 @@ mongoose
     console.log("✅  MongoDB connected — ghss_maankot");
     // Pehli baar admin user banana (ek baar chalta hai)
     const db = mongoose.connection.db;
-    const adminUser = await db.collection('users').findOne({ username: 'admin' });
-    if (!adminUser) {
+    const exists = await db.collection('users').findOne({ username: 'admin' });
+    if (!exists) {
       const hash = await bcrypt.hash('admin123', 10);
       await db.collection('users').insertOne({
         username: 'admin',
         password: hash,
         name: 'Administrator',
-        role: 'superadmin',
         createdAt: new Date()
       });
       console.log('✅  Admin user bana diya — username: admin | password: admin123');
-    } else if (!adminUser.role) {
-      // Purane admin ko superadmin role do (migration)
-      await db.collection('users').updateOne(
-        { username: 'admin' },
-        { $set: { role: 'superadmin' } }
-      );
-      console.log('✅  Admin user ko superadmin role de diya (migration)');
     }
   })
   .catch((err) => { console.error("❌  MongoDB error:", err.message); process.exit(1); });
@@ -64,13 +56,6 @@ function requireAuth(req, res, next) {
   } catch {
     res.status(401).json({ error: 'Session expire ho gaya, dobara login karein' });
   }
-}
-
-function requireSuperAdmin(req, res, next) {
-  if (req.user.role !== 'superadmin') {
-    return res.status(403).json({ error: 'Yeh kaam sirf SuperAdmin kar sakta hai' });
-  }
-  next();
 }
 
 // ── Google Drive HTML Fetcher ────────────────────────────────
@@ -165,11 +150,11 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Username ya password galat hai' });
 
     const token = jwt.sign(
-      { id: user._id.toString(), username: user.username, role: user.role || 'staff' },
+      { id: user._id.toString(), username: user.username },
       JWT_SECRET,
       { expiresIn: '8h' }
     );
-    res.json({ token, name: user.name, role: user.role || 'staff' });
+    res.json({ token, name: user.name });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -193,80 +178,6 @@ app.use("/api/teachers", requireAuth, require("./routes/teachers"));
 app.use("/api/students", requireAuth, require("./routes/students"));
 app.use("/api/diary",    requireAuth, require("./routes/diary"));
 app.use("/api/backup",   requireAuth, require("./routes/backup"));
-
-// PROTECTED — User Management (SuperAdmin only)
-app.get('/api/users', requireAuth, requireSuperAdmin, async (req, res) => {
-  try {
-    const db = mongoose.connection.db;
-    const users = await db.collection('users')
-      .find({}, { projection: { password: 0 } })
-      .sort({ createdAt: 1 })
-      .toArray();
-    res.json({ success: true, data: users });
-  } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
-  }
-});
-
-app.post('/api/users', requireAuth, requireSuperAdmin, async (req, res) => {
-  try {
-    const { username, password, name, role } = req.body;
-    if (!username || !password || !name)
-      return res.status(400).json({ error: 'Username, password aur naam zaroor hai' });
-
-    const db = mongoose.connection.db;
-    const exists = await db.collection('users').findOne({ username });
-    if (exists)
-      return res.status(400).json({ error: 'Yeh username pehle se maujood hai' });
-
-    const hash = await bcrypt.hash(password, 10);
-    const result = await db.collection('users').insertOne({
-      username,
-      password: hash,
-      name,
-      role: role || 'staff',
-      createdAt: new Date()
-    });
-    res.json({ success: true, id: result.insertedId });
-  } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
-  }
-});
-
-app.put('/api/users/:id', requireAuth, requireSuperAdmin, async (req, res) => {
-  try {
-    const { ObjectId } = require('mongodb');
-    const { name, password, role } = req.body;
-    const db = mongoose.connection.db;
-
-    const update = { name, role: role || 'staff' };
-    if (password) {
-      update.password = await bcrypt.hash(password, 10);
-    }
-
-    await db.collection('users').updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: update }
-    );
-    res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
-  }
-});
-
-app.delete('/api/users/:id', requireAuth, requireSuperAdmin, async (req, res) => {
-  try {
-    const { ObjectId } = require('mongodb');
-    const db = mongoose.connection.db;
-    // Apne aap ko delete nahi kar sakte
-    if (req.params.id === req.user.id)
-      return res.status(400).json({ error: 'Aap apna account delete nahi kar sakte' });
-    await db.collection('users').deleteOne({ _id: new ObjectId(req.params.id) });
-    res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
-  }
-});
 
 // PROTECTED — Dashboard Stats
 app.get("/api/stats", requireAuth, async (req, res) => {
