@@ -304,7 +304,66 @@ app.get("/api/stats", requireAuth, async (req, res) => {
     res.status(500).json({ success: false, error: e.message });
   }
 });
+// ════════════════════════════════
+//  ACCOUNTS ROUTES
+// ════════════════════════════════
 
+// Accounts schema
+const accSchema = new mongoose.Schema({
+  fund:    { type: String, enum: ["NSB","FTF"], required: true },
+  type:    { type: String, enum: ["received","expense"], required: true },
+  date:    String,
+  amount:  Number,
+  details: String,
+  cheque:  String,   // expense only
+  by:      String,   // expense only: kis ney kharch kiye
+}, { timestamps: true });
+
+const Account = mongoose.models.Account || mongoose.model("Account", accSchema);
+
+// GET — fund se filter karke sab entries
+router.get("/api/accounts", auth, async (req, res) => {
+  try {
+    const filter = {};
+    if (req.query.fund) filter.fund = req.query.fund;
+    const data = await Account.find(filter).sort({ createdAt: -1 });
+    res.json({ success: true, data });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// POST — nai entry
+router.post("/api/accounts", auth, async (req, res) => {
+  try {
+    const entry = await Account.create(req.body);
+    res.json({ success: true, data: entry });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// PUT — entry update
+router.put("/api/accounts/:id", auth, async (req, res) => {
+  try {
+    const updated = await Account.findByIdAndUpdate(
+      req.params.id, req.body, { new: true }
+    );
+    res.json({ success: true, data: updated });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// DELETE — entry delete
+router.delete("/api/accounts/:id", auth, async (req, res) => {
+  try {
+    await Account.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
 // ── AUTO DAILY BACKUP ────────────────────────────────────────
 cron.schedule("0 23 * * *", async () => {
   try {
