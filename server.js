@@ -315,8 +315,9 @@ const accSchema = new mongoose.Schema({
   date:    String,
   amount:  Number,
   details: String,
-  cheque:  String,   // expense only
-  by:      String,   // expense only: kis ney kharch kiye
+  cheque:      String,   // expense only
+  chequeImage: String,   // base64 image — cheque scan
+  by:          String,   // expense only: kis ney kharch kiye
 }, { timestamps: true });
 
 const Account = mongoose.models.Account || mongoose.model("Account", accSchema);
