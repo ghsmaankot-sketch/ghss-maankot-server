@@ -11,7 +11,7 @@ const fetch      = require("node-fetch");
 const cron       = require("node-cron");
 const jwt        = require('jsonwebtoken');
 const bcrypt     = require('bcryptjs');
-const { ObjectId } = require('mongodb');
+const { Types: { ObjectId } } = require("mongoose");
 
 const app        = express();
 const PORT       = process.env.PORT || 8080;   // ✅ FIXED — sirf ek baar
