@@ -180,7 +180,7 @@ app.post('/api/login', async (req, res) => {
       JWT_SECRET,
       { expiresIn: '8h' }
     );
-    res.json({ token, name: user.name, role });
+    res.json({ token, name: user.name, role, permissions: user.permissions || [] });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -240,16 +240,19 @@ app.post('/api/users', requireSuperAdmin, async (req, res) => {
   }
 });
 
-// PUT update user (name or password)
+// PUT update user (name, password, ya permissions)
 app.put('/api/users/:id', requireSuperAdmin, async (req, res) => {
   try {
-    const { name, password } = req.body;
+    const { name, password, permissions } = req.body;
     const db = mongoose.connection.db;
 
     const update = {};
     if (name) update.name = name;
     if (password && password.trim()) {
       update.password = await bcrypt.hash(password, 10);
+    }
+    if (Array.isArray(permissions)) {
+      update.permissions = permissions;
     }
 
     if (!Object.keys(update).length)
