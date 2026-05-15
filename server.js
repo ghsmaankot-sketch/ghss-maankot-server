@@ -365,6 +365,122 @@ app.delete("/api/accounts/:id", requireAuth, async (req, res) => {
     res.json({ success: false, error: e.message });
   }
 });
+// ════════════════════════════════
+//  RESULT MANAGEMENT ROUTES
+// ════════════════════════════════
+const resultSchema = new mongoose.Schema({
+  studentId:      { type: String, required: true },
+  studentName:    String,
+  rollNo:         String,
+  registrationNo: String,
+  fatherName:     String,
+  class:          { type: String, required: true },
+  term:           { type: String, enum: ["1st Term","2nd Term","Final Term"], required: true },
+  subject:        { type: String, required: true },
+  totalMarks:     { type: Number, required: true },
+  obtainedMarks:  { type: Number, required: true },
+  remarks:        String,
+  date:           String,
+  enteredBy:      String,
+}, { timestamps: true });
+resultSchema.index({ studentId: 1, subject: 1, term: 1 }, { unique: true });
+const Result = mongoose.models.Result || mongoose.model("Result", resultSchema);
+
+// GET — filter by class / term / studentId
+app.get("/api/results", requireAuth, async (req, res) => {
+  try {
+    const filter = {};
+    if (req.query.class)     filter.class     = req.query.class;
+    if (req.query.term)      filter.term      = req.query.term;
+    if (req.query.studentId) filter.studentId = req.query.studentId;
+    const data = await Result.find(filter).sort({ createdAt: -1 });
+    res.json({ success: true, data });
+  } catch (e) { res.json({ success: false, error: e.message }); }
+});
+
+// POST — naya result (duplicate check)
+app.post("/api/results", requireAuth, async (req, res) => {
+  try {
+    const { studentId, subject, term } = req.body;
+    if (!studentId || !subject || !term)
+      return res.status(400).json({ success: false, error: "studentId, subject aur term zaroor hain" });
+    const existing = await Result.findOne({ studentId, subject, term });
+    if (existing)
+      return res.status(409).json({ success: false, error: "Yeh result pehle se save hai", existing });
+    const entry = await Result.create({ ...req.body, enteredBy: req.user.username });
+    res.json({ success: true, data: entry });
+  } catch (e) {
+    if (e.code === 11000) return res.status(409).json({ success: false, error: "Duplicate entry — pehle se save hai" });
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// PUT — result update
+app.put("/api/results/:id", requireAuth, async (req, res) => {
+  try {
+    const updated = await Result.findByIdAndUpdate(
+      req.params.id, { ...req.body, enteredBy: req.user.username }, { new: true }
+    );
+    res.json({ success: true, data: updated });
+  } catch (e) { res.json({ success: false, error: e.message }); }
+});
+
+// DELETE — result delete
+app.delete("/api/results/:id", requireAuth, async (req, res) => {
+  try {
+    await Result.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (e) { res.json({ success: false, error: e.message }); }
+});
+
+// GET — student ka complete result card
+app.get("/api/results/student/:studentId", requireAuth, async (req, res) => {
+  try {
+    const filter = { studentId: req.params.studentId };
+    if (req.query.term) filter.term = req.query.term;
+    const results = await Result.find(filter).sort({ subject: 1 });
+    let totalMarks = 0, obtainedMarks = 0;
+    results.forEach(r => { totalMarks += r.totalMarks; obtainedMarks += r.obtainedMarks; });
+    const percentage = totalMarks > 0 ? ((obtainedMarks / totalMarks) * 100).toFixed(1) : 0;
+    const grade = percentage >= 90 ? "A+" : percentage >= 80 ? "A" : percentage >= 70 ? "B"
+      : percentage >= 60 ? "C" : percentage >= 50 ? "D" : percentage >= 33 ? "E" : "F";
+    res.json({ success: true, data: results, summary: { totalMarks, obtainedMarks, percentage, grade } });
+  } catch (e) { res.json({ success: false, error: e.message }); }
+});
+
+// GET — tabulation sheet (class + term)
+app.get("/api/results/tabulation", requireAuth, async (req, res) => {
+  try {
+    const { class: cls, term } = req.query;
+    if (!cls || !term) return res.status(400).json({ success: false, error: "class aur term zaroor hain" });
+    const results = await Result.find({ class: cls, term });
+    const studentMap = {};
+    const subjectSet = new Set();
+    results.forEach(r => {
+      if (!studentMap[r.studentId]) {
+        studentMap[r.studentId] = {
+          studentId: r.studentId, studentName: r.studentName,
+          rollNo: r.rollNo, registrationNo: r.registrationNo,
+          fatherName: r.fatherName, subjects: {}
+        };
+      }
+      studentMap[r.studentId].subjects[r.subject] = { total: r.totalMarks, obtained: r.obtainedMarks };
+      subjectSet.add(r.subject);
+    });
+    const subjects = [...subjectSet].sort();
+    const students = Object.values(studentMap).map(st => {
+      let total = 0, obtained = 0;
+      subjects.forEach(sub => { if (st.subjects[sub]) { total += st.subjects[sub].total; obtained += st.subjects[sub].obtained; } });
+      const pct = total > 0 ? ((obtained / total) * 100).toFixed(1) : 0;
+      const grade = pct >= 90 ? "A+" : pct >= 80 ? "A" : pct >= 70 ? "B"
+        : pct >= 60 ? "C" : pct >= 50 ? "D" : pct >= 33 ? "E" : "F";
+      return { ...st, total, obtained, percentage: pct, grade };
+    });
+    students.sort((a, b) => b.obtained - a.obtained);
+    students.forEach((s, i) => s.position = i + 1);
+    res.json({ success: true, data: { subjects, students } });
+  } catch (e) { res.json({ success: false, error: e.message }); }
+});
 // ── AUTO DAILY BACKUP ────────────────────────────────────────
 cron.schedule("0 23 * * *", async () => {
   try {
