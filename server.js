@@ -14,7 +14,7 @@ const bcrypt     = require('bcryptjs');
 const { ObjectId } = require('mongodb');
 
 const app        = express();
-const PORT       = process.env.PORT || 3000;
+const PORT       = process.env.PORT || 8080;   // ✅ FIXED — sirf ek baar
 const JWT_SECRET = process.env.JWT_SECRET || 'change_this';
 
 // ── Middleware ───────────────────────────────────────────────
@@ -32,7 +32,6 @@ mongoose
   .connect(process.env.MONGODB_URI)
   .then(async () => {
     console.log("✅  MongoDB connected — ghss_maankot");
-    // Pehli baar superadmin user banana (ek baar chalta hai)
     const db = mongoose.connection.db;
     const exists = await db.collection('users').findOne({ username: 'admin' });
     if (!exists) {
@@ -41,12 +40,11 @@ mongoose
         username: 'admin',
         password: hash,
         name: 'Super Administrator',
-        role: 'superadmin',          // <-- SuperAdmin role
+        role: 'superadmin',
         createdAt: new Date()
       });
       console.log('✅  SuperAdmin user bana diya — username: admin | password: admin123');
     } else {
-      // Purana admin ko superadmin role do agar nahi hai
       if (!exists.role) {
         await db.collection('users').updateOne(
           { username: 'admin' },
@@ -233,7 +231,7 @@ app.post('/api/users', requireSuperAdmin, async (req, res) => {
       username,
       password: hash,
       name,
-      role: 'staff',       // Staff role hamesha
+      role: 'staff',
       createdAt: new Date()
     });
     res.json({ success: true, message: 'Staff user ban gaya' });
@@ -267,7 +265,7 @@ app.put('/api/users/:id', requireSuperAdmin, async (req, res) => {
   }
 });
 
-// DELETE user (superadmin ko delete nahi kar saktey)
+// DELETE user
 app.delete('/api/users/:id', requireSuperAdmin, async (req, res) => {
   try {
     const db = mongoose.connection.db;
@@ -320,7 +318,7 @@ cron.schedule("0 23 * * *", async () => {
 }, { timezone: "Asia/Karachi" });
 
 // ── START ────────────────────────────────────────────────────
-const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`HTML Drive ID: ${FILE_ID || "NOT SET"}`);
 });
