@@ -320,10 +320,7 @@ cron.schedule("0 23 * * *", async () => {
 }, { timezone: "Asia/Karachi" });
 
 // ── START ────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`\n🚀  GHSS Maankot Server chal raha hai`);
-  console.log(`📡  URL: http://localhost:${PORT}`);
-  console.log(`🗄️   API: http://localhost:${PORT}/api`);
-  console.log(`📄  HTML Drive ID: ${FILE_ID || "NOT SET"}`);
-  console.log(`⏱️   Cache: ${CACHE_SECS}s\n`);
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT}`);
 });
