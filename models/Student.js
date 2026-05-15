@@ -11,6 +11,7 @@ const studentSchema = new mongoose.Schema(
     address:            { type: String, default: "" },
     contact:            { type: String, default: "" },
     class:              { type: String, default: "" },
+    classRollNo:        { type: Number, default: null },   // ← یہ add کریں
     registrationNumber: { type: String, unique: true, sparse: true },
     leavingCertIssued:  { type: Boolean, default: false },
     leavingCertDate:    { type: String, default: "" },
