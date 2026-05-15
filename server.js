@@ -322,7 +322,7 @@ const accSchema = new mongoose.Schema({
 const Account = mongoose.models.Account || mongoose.model("Account", accSchema);
 
 // GET — fund se filter karke sab entries
-router.get("/api/accounts", auth, async (req, res) => {
+app.get("/api/accounts", requireAuth, async (req, res) => {
   try {
     const filter = {};
     if (req.query.fund) filter.fund = req.query.fund;
@@ -334,7 +334,7 @@ router.get("/api/accounts", auth, async (req, res) => {
 });
 
 // POST — nai entry
-router.post("/api/accounts", auth, async (req, res) => {
+app.post("/api/accounts", requireAuth, async (req, res) => {
   try {
     const entry = await Account.create(req.body);
     res.json({ success: true, data: entry });
@@ -344,7 +344,7 @@ router.post("/api/accounts", auth, async (req, res) => {
 });
 
 // PUT — entry update
-router.put("/api/accounts/:id", auth, async (req, res) => {
+app.put("/api/accounts/:id", requireAuth, async (req, res) => {
   try {
     const updated = await Account.findByIdAndUpdate(
       req.params.id, req.body, { new: true }
@@ -356,7 +356,7 @@ router.put("/api/accounts/:id", auth, async (req, res) => {
 });
 
 // DELETE — entry delete
-router.delete("/api/accounts/:id", auth, async (req, res) => {
+app.delete("/api/accounts/:id", requireAuth, async (req, res) => {
   try {
     await Account.findByIdAndDelete(req.params.id);
     res.json({ success: true });
