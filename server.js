@@ -373,6 +373,114 @@ app.use("/api/diary",    requireAuth, require("./routes/diary"));
 app.use("/api/backup",   requireAuth, require("./routes/backup"));
 
 // PROTECTED — Dashboard Stats
+// ════════════════════════════════
+//  ATTENDANCE ROUTES
+// ════════════════════════════════
+
+const Student = require("./models/Student");
+
+// MARK ATTENDANCE
+app.post("/api/attendance", requireAuth, async (req,res)=>{
+
+  try{
+
+    const { studentId, status, date } = req.body;
+
+    if(!studentId || !status || !date){
+      return res.json({
+        success:false,
+        error:"studentId, status aur date zaroor hain"
+      });
+    }
+
+    const student = await Student.findById(studentId);
+
+    if(!student){
+      return res.json({
+        success:false,
+        error:"Student nahi mila"
+      });
+    }
+
+    // agar same date already hai to update karo
+    const existing = student.attendance.find(
+      a => a.date === date
+    );
+
+    if(existing){
+
+      existing.status = status;
+
+    }else{
+
+      student.attendance.push({
+        date,
+        status
+      });
+
+    }
+
+    await student.save();
+
+    res.json({
+      success:true,
+      message:"Attendance save ho gayi"
+    });
+
+  }catch(err){
+
+    res.json({
+      success:false,
+      error:err.message
+    });
+
+  }
+
+});
+
+// GET STUDENT ATTENDANCE
+app.get("/api/attendance/:studentId", requireAuth, async (req,res)=>{
+
+  try{
+
+    const student = await Student.findById(req.params.studentId);
+
+    if(!student){
+      return res.json({
+        success:false,
+        error:"Student nahi mila"
+      });
+    }
+
+    const attendance = student.attendance || [];
+
+    const totalPresent = attendance.filter(a=>a.status==="Present").length;
+
+    const totalLeave = attendance.filter(a=>a.status==="Leave").length;
+
+    const totalAbsent = attendance.filter(a=>a.status==="Absent").length;
+
+    res.json({
+      success:true,
+      attendance,
+      stats:{
+        totalPresent,
+        totalLeave,
+        totalAbsent,
+        total:attendance.length
+      }
+    });
+
+  }catch(err){
+
+    res.json({
+      success:false,
+      error:err.message
+    });
+
+  }
+
+});
 app.get("/api/stats", requireAuth, async (req, res) => {
   try {
     const Teacher = require("./models/Teacher");
