@@ -298,6 +298,36 @@ app.delete('/api/users/:id', requireSuperAdmin, async (req, res) => {
   }
 });
 
+// ── CHANGE OWN PASSWORD (Any logged-in user) ─────────────────
+app.post('/api/users/me/password', requireAuth, async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    if (!oldPassword || !newPassword)
+      return res.status(400).json({ success: false, error: 'Purana aur naya password zaroor daalen' });
+    if (newPassword.length < 6)
+      return res.status(400).json({ success: false, error: 'Naya password kam az kam 6 characters ka hona chahiye' });
+
+    const db = mongoose.connection.db;
+    const { ObjectId } = require('mongodb');
+    const user = await db.collection('users').findOne({ _id: new ObjectId(req.user.id) });
+    if (!user)
+      return res.status(404).json({ success: false, error: 'User nahi mila' });
+
+    const match = await bcrypt.compare(oldPassword, user.password);
+    if (!match)
+      return res.status(401).json({ success: false, error: 'Purana password galat hai ❌' });
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    await db.collection('users').updateOne(
+      { _id: new ObjectId(req.user.id) },
+      { $set: { password: hash } }
+    );
+    res.json({ success: true, message: 'Password change ho gaya' });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // PROTECTED — API Routes
 app.use("/api/teachers", requireAuth, require("./routes/teachers"));
 app.use("/api/students", requireAuth, require("./routes/students"));
