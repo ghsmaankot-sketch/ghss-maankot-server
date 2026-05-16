@@ -480,7 +480,7 @@ app.delete("/api/results/:id", requireAuth, async (req, res) => {
 });
 
 // GET — student ka complete result card
-app.get("/api/results/student/:studentId", requireAuth, async (req, res) => {
+app.get("/api/results/tabulation", requireAuth, async (req, res) => { ... });
   try {
     const filter = { studentId: req.params.studentId };
     if (req.query.term) filter.term = req.query.term;
@@ -495,7 +495,7 @@ app.get("/api/results/student/:studentId", requireAuth, async (req, res) => {
 });
 
 // GET — tabulation sheet (class + term)
-app.get("/api/results/tabulation", requireAuth, async (req, res) => {
+app.get("/api/results/student/:studentId", requireAuth, async (req, res) => { ... });
   try {
     const { class: cls, term } = req.query;
     if (!cls || !term) return res.status(400).json({ success: false, error: "class aur term zaroor hain" });
