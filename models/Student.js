@@ -16,6 +16,12 @@ const studentSchema = new mongoose.Schema(
     leavingCertIssued:  { type: Boolean, default: false },
     leavingCertDate:    { type: String, default: "" },
     photoData:          { type: String, default: "" },  // base64 image
+    attendance: [
+  {
+    date:   { type:String },
+    status: { type:String, enum:["Present","Leave","Absent"] }
+  }
+],
   },
   { timestamps: true }
 );
