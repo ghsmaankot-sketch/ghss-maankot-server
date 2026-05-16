@@ -480,22 +480,9 @@ app.delete("/api/results/:id", requireAuth, async (req, res) => {
 });
 
 // GET — student ka complete result card
-app.get("/api/results/tabulation", requireAuth, async (req, res) => { ... });
-  try {
-    const filter = { studentId: req.params.studentId };
-    if (req.query.term) filter.term = req.query.term;
-    const results = await Result.find(filter).sort({ subject: 1 });
-    let totalMarks = 0, obtainedMarks = 0;
-    results.forEach(r => { totalMarks += r.totalMarks; obtainedMarks += r.obtainedMarks; });
-    const percentage = totalMarks > 0 ? ((obtainedMarks / totalMarks) * 100).toFixed(1) : 0;
-    const grade = percentage >= 90 ? "A+" : percentage >= 80 ? "A" : percentage >= 70 ? "B"
-      : percentage >= 60 ? "C" : percentage >= 50 ? "D" : percentage >= 33 ? "E" : "F";
-    res.json({ success: true, data: results, summary: { totalMarks, obtainedMarks, percentage, grade } });
-  } catch (e) { res.json({ success: false, error: e.message }); }
-});
 
-// GET — tabulation sheet (class + term)
-app.get("/api/results/student/:studentId", requireAuth, async (req, res) => { ... });
+// GET — tabulation sheet (class + term)  ✅ PEHLE — specific route
+app.get("/api/results/tabulation", requireAuth, async (req, res) => {
   try {
     const { class: cls, term } = req.query;
     if (!cls || !term) return res.status(400).json({ success: false, error: "class aur term zaroor hain" });
@@ -525,6 +512,21 @@ app.get("/api/results/student/:studentId", requireAuth, async (req, res) => { ..
     students.sort((a, b) => b.obtained - a.obtained);
     students.forEach((s, i) => s.position = i + 1);
     res.json({ success: true, data: { subjects, students } });
+  } catch (e) { res.json({ success: false, error: e.message }); }
+});
+
+// GET — student ka complete result card  ✅ BAAD MEIN — dynamic route
+app.get("/api/results/student/:studentId", requireAuth, async (req, res) => {
+  try {
+    const filter = { studentId: req.params.studentId };
+    if (req.query.term) filter.term = req.query.term;
+    const results = await Result.find(filter).sort({ subject: 1 });
+    let totalMarks = 0, obtainedMarks = 0;
+    results.forEach(r => { totalMarks += r.totalMarks; obtainedMarks += r.obtainedMarks; });
+    const percentage = totalMarks > 0 ? ((obtainedMarks / totalMarks) * 100).toFixed(1) : 0;
+    const grade = percentage >= 90 ? "A+" : percentage >= 80 ? "A" : percentage >= 70 ? "B"
+      : percentage >= 60 ? "C" : percentage >= 50 ? "D" : percentage >= 33 ? "E" : "F";
+    res.json({ success: true, data: results, summary: { totalMarks, obtainedMarks, percentage, grade } });
   } catch (e) { res.json({ success: false, error: e.message }); }
 });
 // ── AUTO DAILY BACKUP ────────────────────────────────────────
