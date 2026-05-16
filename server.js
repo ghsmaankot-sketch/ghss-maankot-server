@@ -180,7 +180,14 @@ app.post('/api/login', async (req, res) => {
       JWT_SECRET,
       { expiresIn: '8h' }
     );
-    res.json({ token, name: user.name, role, permissions: user.permissions || [] });
+    res.json({
+      token,
+      name: user.name,
+      role,
+      permissions: user.permissions || [],
+      assignedClasses: user.assignedClasses || [],
+      accountFunds: user.accountFunds || ["NSB","FTF"]
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -243,7 +250,7 @@ app.post('/api/users', requireSuperAdmin, async (req, res) => {
 // PUT update user (name, password, ya permissions)
 app.put('/api/users/:id', requireSuperAdmin, async (req, res) => {
   try {
-    const { name, password, permissions } = req.body;
+    const { name, password, permissions, assignedClasses, accountFunds } = req.body;
     const db = mongoose.connection.db;
 
     const update = {};
@@ -253,6 +260,12 @@ app.put('/api/users/:id', requireSuperAdmin, async (req, res) => {
     }
     if (Array.isArray(permissions)) {
       update.permissions = permissions;
+    }
+    if (Array.isArray(assignedClasses)) {
+      update.assignedClasses = assignedClasses;
+    }
+    if (Array.isArray(accountFunds)) {
+      update.accountFunds = accountFunds;
     }
 
     if (!Object.keys(update).length)
